@@ -11,27 +11,28 @@ from datetime import datetime
 from flask import Flask
 from threading import Thread
 
-# ================= CONFIG =================
+# ================= CONFIGURATION =================
 TOKEN = "8783194900:AAH__MsqIgqwKn_-Pzg2NdxQsIJ1OjvAVY8"
 ADMIN_ID = 8783194900
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask('')
 
-# ডাটাবেজ এবং সেটিংস
+# Default Configuration
 config = {
     "rates": {"IG 2FA": 0.025, "IG Cookies": 0.034, "FB 30F": 0.033},
-    "ref_bonus": 0.020,
-    "status": {"ig": True, "fb": True, "cook": True},
     "sheets": {"save": "Not Set", "source": "Not Set"}
 }
 
-# ================= HELPERS (আপনার লজিক) =================
+# ================= HELPERS =================
+
+# ৭ অক্ষরের নাম + তারিখ দিয়ে র্যান্ডম পাসওয়ার্ড
 def generate_random_pass():
     letters = string.ascii_lowercase
     random_name = ''.join(random.choice(letters) for i in range(7)).capitalize()
     day = datetime.now().strftime("%d")
     return f"{random_name}{day}"
 
+# ওটিপি জেনারেটর (Internal Algorithm)
 def get_totp_code(secret):
     try:
         clean_sec = ''.join(c for c in secret if c.isalnum()).upper()
@@ -44,94 +45,99 @@ def get_totp_code(secret):
     except:
         return "❌ Invalid Secret Key"
 
-# ================= MENUS (✅ Reply & Inline) =================
+# ================= KEYBOARDS (Reply ✅) =================
+
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add("📋 কাজ", "💰 ব্যালেন্স")
-    markup.add("🏦 টাকা উত্তোলন", "🏆 লিডারবোর্ড")
-    markup.add("👥 রেফার", "📞 সাপোর্ট")
+    markup.add("📋 Tasks", "💰 Balance")
+    markup.add("🏦 Withdraw", "🏆 Leaderboard")
+    markup.add("👥 Refer", "📞 Support")
+    return markup
+
+def task_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add("📸 Instagram 2FA", "🍪 Instagram Cookies", "📘 FB 30 Friend (Hotmail)", "🔙 Back to Menu")
     return markup
 
 def admin_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add("✅ সাকসেস রিপোর্ট সেন্ড", "❌ রিজেক্ট রিপোর্ট সেন্ড")
-    markup.add("⚙️ সেটিংস ও শিট লিঙ্ক", "📊 চেক স্ট্যাটাস")
-    markup.add("🔙 মেইন মেনু")
+    markup.add("✅ Send Success Report", "❌ Send Reject Report")
+    markup.add("⚙️ Settings & URL", "📊 Check Status", "🔙 Back to Menu")
     return markup
 
-# ================= START & WORK =================
+# ================= BOT HANDLERS =================
+
 @bot.message_handler(commands=['start'])
-def start(message):
-    bot.send_message(message.chat.id, f"👋 স্বাগতম!\nআজকের র্যান্ডম পাসওয়ার্ড: <b>{generate_random_pass()}</b>", reply_markup=main_menu())
+def welcome(message):
+    user_name = message.from_user.first_name
+    bot.send_message(message.chat.id, f"Welcome, <b>{user_name}</b>! Start your work from the menu below.", reply_markup=main_menu())
 
-@bot.message_handler(func=lambda m: m.text == "📋 কাজ")
-def task_list(message):
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton(f"📸 Instagram 2FA (${config['rates']['IG 2FA']})", callback_data="t_ig"),
-        types.InlineKeyboardButton(f"🍪 Instagram Cookies (${config['rates']['IG Cookies']})", callback_data="t_cook"),
-        types.InlineKeyboardButton(f"📘 FB 30 Friend (Hotmail) (${config['rates']['FB 30F']})", callback_data="t_fb")
-    )
-    bot.send_message(message.chat.id, "⚡️ কাজ সিলেক্ট করুন:", reply_markup=markup)
+# --- Task Sub-Menu Logic ---
+@bot.message_handler(func=lambda m: m.text == "📋 Tasks")
+def show_tasks(message):
+    bot.send_message(message.chat.id, "Select your task category:", reply_markup=task_menu())
 
-# ২এফএ ওটিপি জেনারেটর লজিক
-@bot.callback_query_handler(func=lambda call: call.data == "t_ig")
-def ig_start(call):
-    p = generate_random_pass()
-    msg = bot.send_message(call.message.chat.id, f"🔐 **Instagram 2FA**\nপাসওয়ার্ড: `{p}`\n\nকোড পেতে আপনার **2FA Secret Key** টি পাঠান:")
-    bot.register_next_step_handler(msg, show_otp)
+@bot.message_handler(func=lambda m: m.text == "🔙 Back to Menu")
+def back_to_main(message):
+    bot.send_message(message.chat.id, "Returning to main menu...", reply_markup=main_menu())
 
-def show_otp(message):
-    code = get_totp_code(message.text)
-    bot.send_message(message.chat.id, f"✅ আপনার ওটিপি কোড: <code>{code}</code>\nআইডি রেডি করে জমা দিন।")
+# --- Instagram 2FA Logic ---
+@bot.message_handler(func=lambda m: m.text == "📸 Instagram 2FA")
+def ig_2fa_task(message):
+    new_pass = generate_random_pass()
+    text = (f"🔐 <b>Instagram 2FA Task</b>\n\n"
+            f"🔑 <b>Today's Password:</b> <code>{new_pass}</code>\n\n"
+            f"To get your OTP, click the button below or send your 2FA Secret Key.")
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔐 Get 2FA OTP", callback_data="get_otp_flow"))
+    bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# ================= ADMIN ACTIONS =================
+@bot.callback_query_handler(func=lambda call: call.data == "get_otp_flow")
+def ask_secret(call):
+    msg = bot.send_message(call.message.chat.id, "📩 Please send your <b>2FA Secret Key</b>:")
+    bot.register_next_step_handler(msg, process_otp)
+
+def process_otp(message):
+    secret = message.text.strip()
+    otp_code = get_totp_code(secret)
+    bot.send_message(message.chat.id, f"✅ <b>Your OTP Code:</b> <code>{otp_code}</code>\nNow login and submit your username.")
+
+# --- FB 30 Friend (Hotmail Source) ---
+@bot.message_handler(func=lambda m: m.text == "📘 FB 30 Friend (Hotmail)")
+def fb_task(message):
+    # এখানে আপনার সোর্স শিট থেকে মেইল তুলে দেওয়ার লজিক থাকবে
+    bot.send_message(message.chat.id, "📦 Fetching a fresh Hotmail for you...\n\n(Feature linked to Source Sheet)")
+
+# ================= ADMIN PANEL =================
+
 @bot.message_handler(commands=['admin'])
 def admin_start(message):
     if message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, "👑 অ্যাডমিন প্যানেলে স্বাগতম", reply_markup=admin_menu())
+        bot.send_message(message.chat.id, "👑 <b>Admin Control Panel</b>", reply_markup=admin_menu())
 
-@bot.message_handler(func=lambda m: m.text == "✅ সাকসেস রিপোর্ট সেন্ড")
-def success_report(message):
+@bot.message_handler(func=lambda m: m.text == "✅ Send Success Report")
+def bulk_report(message):
     if message.from_user.id == ADMIN_ID:
-        msg = bot.send_message(message.chat.id, "📝 সাকসেস ইউজারনেম লিস্ট দিন (এক লাইনে একটি):")
-        bot.register_next_step_handler(msg, send_bulk_success)
+        msg = bot.send_message(message.chat.id, "📝 Send me the list of <b>Usernames</b> (One per line):")
+        bot.register_next_step_handler(msg, process_bulk_success)
 
-def send_bulk_success(message):
-    unames = message.text.split('\n')
-    for u in unames:
-        u = u.strip()
-        if u:
-            # সাকসেস মেসেজ ফরম্যাট
-            bot.send_message(message.chat.id, f"✅ <b>Report approved, +$0.034</b>\n🆔 <b>Username:</b> <code>{u}</code>\n✉ <b>Comment:</b> আপনার কাজ সফলভাবে গ্রহণ করা হয়েছে।")
-    bot.send_message(message.chat.id, "🏁 রিপোর্ট পাঠানোর কাজ সম্পন্ন হয়েছে!")
+def process_bulk_success(message):
+    user_list = message.text.split('\n')
+    for username in user_list:
+        username = username.strip()
+        if username:
+            # সাকসেস মেসেজ ফাটানোর ফরম্যাট
+            bot.send_message(message.chat.id, f"✅ <b>Report approved, +$0.034</b>\n🆔 <b>Username:</b> <code>{username}</code>\n✉ <b>Comment:</b> Your work has been successfully accepted.")
+    bot.send_message(message.chat.id, "🏁 Bulk reporting completed!")
 
-@bot.message_handler(func=lambda m: m.text == "⚙️ সেটিংস ও শিট লিঙ্ক")
-def settings_panel(message):
-    if message.from_user.id == ADMIN_ID:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔗 Edit Save Sheet URL", callback_data="edit_save"))
-        markup.add(types.InlineKeyboardButton("💰 Edit Rates", callback_data="edit_rates"))
-        bot.send_message(message.chat.id, "⚙️ কনফিগারেশন পরিবর্তন করুন:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data == "edit_save")
-def edit_url(call):
-    msg = bot.send_message(call.message.chat.id, "📩 নতুন Save Sheet URL টি পাঠান:")
-    bot.register_next_step_handler(msg, update_url)
-
-def update_url(message):
-    config["sheets"]["save"] = message.text
-    bot.send_message(message.chat.id, "✅ গুগল শিট URL আপডেট হয়েছে!")
-
-# ================= SERVER & RUN =================
+# ================= WEB SERVER =================
 @app.route('/')
 def home(): return "Bot is Online!"
-
 def run(): app.run(host='0.0.0.0', port=8080)
 
 if __name__ == "__main__":
     t = Thread(target=run)
     t.start()
-    print("বট সচল হয়েছে...")
     bot.infinity_polling()
-        
+    
